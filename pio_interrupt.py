@@ -1,80 +1,78 @@
-# PIO Interrupt module
+# PIO Interrupt Module - Final Production Version with destroy()
 # Author: G Tucker
-# Date: 2nd Feb 2026
-
+# Date: 31st Jan 2026
 
 from machine import Pin
-from rp2 import StateMachine
-import time
-from rp2 import asm_pio
-
-# -------------------------------------------------
-# PIO Program Generator
-# -------------------------------------------------
-
-
-def make_edge_pio(rising, oneshot, cycles, debug=False):
-    if cycles <= 0:
-        raise ValueError("cycles must be > 0")
-
-    if rising:
-        wait_edge    = "wait(1, pin, 0)"
-        release_edge = "wait(0, pin, 0)"
-        final_check  = [
-            "jmp(pin, 'irq_label')",
-            "jmp('start')",
-        ]
-    else:
-        wait_edge    = "wait(0, pin, 0)"
-        release_edge = "wait(1, pin, 0)"
-        final_check  = [
-            "jmp(pin, 'start')",
-            "jmp('irq_label')",
-        ]
-
-    after_irq = "jmp('oneshot_halt')" if oneshot else "jmp('pinwait')"
-
-    code_lines = [
-        "@asm_pio()",
-        "def dynamic_edge():",
-        "    pull()",
-        "    mov(y, osr)",
-        "    label('start')",
-        f"    {wait_edge}",
-        "    mov(x, y),",
-        "    label('hold_loop')",
-        "    jmp(x_dec, 'hold_loop')",
-    ]
-
-    for line in final_check:
-        code_lines.append(f"    {line}")
-
-    code_lines.extend([
-        "    label('irq_label')",
-        "    irq(rel(0))",
-        f"    {after_irq}",
-        "    label('oneshot_halt')",
-        "    jmp('oneshot_halt')",
-        "    label('pinwait')",
-        f"    {release_edge}",
-        "    jmp('start')",
-    ])
-
-    code = "\n".join(code_lines) + "\n"
-
-
-    # print(f"----- Generated PIO program Rising: {rising}, oneshot: {oneshot} -----")
-    # print(code)
-    # print("--------------------------------")
-
-    namespace = {}
-    exec(code, globals(), namespace)
-    return namespace["dynamic_edge"]
+from rp2 import StateMachine, asm_pio
 
 
 # -------------------------------------------------
-# PIO_INTERRUPT Class
+# STATIC PIO PROGRAM (UNCHANGED)
 # -------------------------------------------------
+
+@asm_pio()
+def edge_xy():
+    pull()                 # 1st pull: one-shot flag
+    mov(y, osr)
+
+    pull()                 # 2nd pull: debounce / hold cycles
+    mov(isr, osr)
+
+    pull()                 # 3rd pull: edge direction
+                           # 0 = falling, 1 = rising
+
+    label("start")
+    mov(x, osr)
+    jmp(not_x, 'falling')
+
+    # --- Rising edge wait ---
+    wait(1, pin, 0)
+    jmp('delay')
+
+    # --- Falling edge wait ---
+    label('falling')
+    wait(0, pin, 0)
+
+    # --- Debounce delay ---
+    label('delay')
+    mov(x, isr)
+    label('hold')
+    jmp(x_dec, 'hold')
+
+    # --- Validation ---
+    mov(x, osr)
+    jmp(not_x, 'fallingcheck')
+
+    # Rising validation
+    jmp(pin, 'irq')
+    jmp('start')
+
+    # Falling validation
+    label('fallingcheck')
+    jmp(pin, 'start')
+
+    # --- IRQ ---
+    label('irq')
+    irq(rel(0))
+
+    # --- Release wait ---
+    jmp(not_x, 'falling_reverse')
+    wait(0, pin, 0)
+    label('falling_reverse')
+    wait(1, pin, 0)
+
+    # --- One-shot control ---
+    jmp(not_y, 'start')
+    jmp('halt')
+
+    label('halt')
+    jmp('halt')
+
+
+# -------------------------------------------------
+# PIO_INTERRUPT Class (API UNCHANGED)
+# -------------------------------------------------
+
 class PIO_INTERRUPT:
     def __init__(self, sm_number:int, interrupt_pin:int, direction:str="rising",
                  hold_ms:int=20, oneshot:bool=False, pull:bool=False, freq:int=4000):
@@ -82,11 +80,12 @@ class PIO_INTERRUPT:
         sm_number      : StateMachine number
         interrupt_pin  : GPIO number
         direction      : 'rising' or 'falling'
-        hold_ms        : Hold/debounce period in milliseconds (default 20 ms)
+        hold_ms        : Hold/debounce period in milliseconds
         oneshot        : True for one-shot mode
         pull           : True to enable pull_up/down automatically
         freq           : StateMachine frequency in Hz
         """
+
         self.sm_number = sm_number
         self.interrupt_pin = interrupt_pin
         self.direction = direction
@@ -94,10 +93,10 @@ class PIO_INTERRUPT:
         self.pull = pull
         self.freq = freq
 
-        # Convert hold_ms to SM cycles
+        # Convert hold_ms → PIO cycles
         self.hold_cycles = max(1, int(hold_ms * freq / 1000))
 
-        # Optional pull-up/down
+        # Configure GPIO
         if pull:
             if direction == "rising":
                 self.pin = Pin(interrupt_pin, Pin.IN, Pin.PULL_DOWN)
@@ -106,80 +105,84 @@ class PIO_INTERRUPT:
         else:
             self.pin = Pin(interrupt_pin, Pin.IN)
 
-        # Create PIO program with calculated cycles
-        self.sm_program = make_edge_pio(rising=(direction=="rising"),oneshot=oneshot,cycles=self.hold_cycles)
-
-        # Callback placeholder
+        # Callback + polling flag
         self.callback = None
-        # Interrupt flag for polling
         self._triggered = False
 
         # Build the state machine
         self._build_sm()
 
+
     # -------------------------------------------------
-    # Internal method to build/rebuild the state machine
+    # Build / rebuild SM
     # -------------------------------------------------
+
     def _build_sm(self):
-        """Build or rebuild the StateMachine"""
-        self.sm = StateMachine(self.sm_number, self.sm_program,
-                               freq=self.freq, in_base=self.pin, jmp_pin=self.pin)
-        self.sm.put(self.hold_cycles)
+        self.sm = StateMachine(
+            self.sm_number,
+            edge_xy,
+            freq=self.freq,
+            in_base=self.pin,
+            jmp_pin=self.pin
+        )
+
+        # FIFO configuration (ORDER IS CRITICAL)
+        self.sm.put(1 if self.oneshot else 0)                 # pull #1 → Y
+        self.sm.put(self.hold_cycles)                         # pull #2 → ISR
+        self.sm.put(1 if self.direction == "rising" else 0)  # pull #3 → OSR
+
         self.sm.irq(self._irq_handler)
         self.sm.active(1)
 
+
     # -------------------------------------------------
-    # Internal IRQ handler
+    # IRQ handler
     # -------------------------------------------------
+
     def _irq_handler(self, sm):
-        # Set internal flag for polling
         self._triggered = True
-        # Call callback if registered
         if self.callback:
             self.callback()
 
+
     # -------------------------------------------------
-    # Register a Python callback for IRQ
+    # Register callback
     # -------------------------------------------------
+
     def register_callback(self, func):
-        """Register a function to be called when interrupt occurs"""
         self.callback = func
+
 
     # -------------------------------------------------
     # Restart one-shot SM
     # -------------------------------------------------
+
     def restart(self):
-        """Restart the state machine after one-shot halting"""
         if not self.oneshot:
-            return  # only needed for one-shot
+            return
         self.sm.active(0)
-        self._build_sm()  # rebuild SM completely
+        self._build_sm()
+
 
     # -------------------------------------------------
-    # Polling method to check if IRQ occurred
+    # Polling interface
     # -------------------------------------------------
+
     def triggered(self, clear=True):
-        """
-        Check if an interrupt occurred.
-        clear: If True, reset the flag after reading
-        """
         val = self._triggered
         if clear:
             self._triggered = False
         return val
 
-    # -------------------------------------------------
-    # Destroy / cleanup the state machine
-    # -------------------------------------------------
-    def destroy(self):
-        """
-        Completely stop and clean up the state machine.
-        Should be called on program exit or exceptions to free resources.
-        """
-        if hasattr(self, 'sm'):
-            self.sm.active(0)    # Stop the SM
-            self.sm.irq(None)    # Remove IRQ callback
-            del self.sm          # Delete SM object
-        self.callback = None     # Remove callback reference
 
+    # -------------------------------------------------
+    # Destroy / cleanup
+    # -------------------------------------------------
+
+    def destroy(self):
+        if hasattr(self, 'sm'):
+            self.sm.active(0)
+            self.sm.irq(None)
+            del self.sm
+        self.callback = None
 
