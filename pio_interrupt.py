@@ -63,9 +63,9 @@ def make_edge_pio(rising, oneshot, cycles, debug=False):
     code = "\n".join(code_lines) + "\n"
 
 
-    print(f"----- Generated PIO program Rising: {rising}, oneshot: {oneshot} -----")
-    print(code)
-    print("--------------------------------")
+    # print(f"----- Generated PIO program Rising: {rising}, oneshot: {oneshot} -----")
+    # print(code)
+    # print("--------------------------------")
 
     namespace = {}
     exec(code, globals(), namespace)
@@ -181,4 +181,5 @@ class PIO_INTERRUPT:
             self.sm.irq(None)    # Remove IRQ callback
             del self.sm          # Delete SM object
         self.callback = None     # Remove callback reference
+
 
