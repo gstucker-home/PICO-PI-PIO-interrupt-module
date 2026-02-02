@@ -129,6 +129,33 @@ At the default freq = ```4000 Hz```:
 | Rising    | Pull-down    |
 | Falling   | Pull-up      |
 
+Note:
+On RP2350 devices, internal pull-downs may be unreliable due to a known silicon erratum (RP2350-E9). For reliable inputs, use external pull resistors (~8 kΩ) if necessary.
+
+
+---
+#### Minimum Creation Example (Defaults Only)
+
+```python
+from pio_interrupt import PIO_INTERRUPT
+
+irq = PIO_INTERRUPT(
+    sm_number=0,
+    interrupt_pin=15
+)
+```
+What This Creates (Explicitly)
+Even though not specified, this is exactly what gets configured:
+| Setting        | Value               |
+| -------------- | ------------------- |
+| Edge direction | `"rising"`          |
+| Debounce time  | `20 ms`             |
+| Trigger mode   | Repeating           |
+| Internal pull  | Disabled            |
+| PIO frequency  | `4000 Hz`           |
+| Callback       | None (polling mode) |
+
+
 ---
 
 #### Basic Example — Polling Mode
