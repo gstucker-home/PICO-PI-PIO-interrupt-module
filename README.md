@@ -91,15 +91,36 @@ PIO_INTERRUPT(
 )
 ```
 ##### Parameters
-|Parameter|Description|
-|:-------:|:---------:|
-|sm_number|PIO StateMachine number (0–7) (0 - 12 for RP2350)|
-|interrupt_pin|GPIO number to monitor|
-|direction|"rising" or "falling" (Edge)|
-|hold_ms|Debounce / hold time in milliseconds|
-|oneshot|Stop after first trigger|
-|pull|Enable internal pull-up/down (not recommended on RP2350)
-|freq|PIO clock frequency (Hz)|
+| Parameter       | Required | Type   | Default    | Description                                                                   |
+| --------------- | -------- | ------ | ---------- | ----------------------------------------------------------------------------- |
+| `sm_number`     | Yes    | `int`  | —          | PIO StateMachine number (0–7). Must be unique per active SM.                  |
+| `interrupt_pin` | Yes    | `int`  | —          | GPIO pin number to monitor for edges.                                         |
+| `direction`     | No     | `str`  | `"rising"` | Edge type to detect. `"rising"` or `"falling"`.                               |
+| `hold_ms`       | No     | `int`  | `20`       | Debounce / hold-off time in milliseconds. Converted internally to PIO cycles. |
+| `oneshot`       | No     | `bool` | `False`    | If `True`, the interrupt fires once and the SM halts until restarted.         |
+| `pull`          | No     | `bool` | `False`    | Enables internal pull resistor based on direction.                            |
+| `freq`          | No     | `int`  | `4000`     | PIO StateMachine clock frequency in Hz. Controls debounce resolution.         |
+
+Default Behaviour Summary
+
+| Feature        | Default Behaviour   |
+| -------------- | ------------------- |
+| Edge detection | Rising edge         |
+| Debounce       | 20 ms               |
+| Trigger mode   | Repeating           |
+| Pull resistors | Disabled            |
+| SM frequency   | 4 kHz               |
+| Callback       | None (polling only) |
+
+Notes on Defaults
+```hold_ms ``` and ```freq```
+The effective debounce resolution is:
+```python
+resolution ≈ 1 / freq seconds
+```
+At the default freq = ```4000 Hz```:
+- Resolution ≈ 0.25 ms
+- ```hold_ms``` = 20 → ~80 PIO cycles
 
 ##### Pull Logic
 
