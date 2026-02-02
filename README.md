@@ -1,7 +1,4 @@
-# PIO Interrupt Module for Raspberry Pi Pico (MicroPython)
-Language: MicroPython
-
-Core Tech: PIO + StateMachine IRQs
+# PIO Interrupt Module for Raspberry Pi Pico RP2040 and RP2350 (MicroPython)
 
 
 ## Overview
