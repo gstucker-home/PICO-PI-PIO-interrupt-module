@@ -293,7 +293,21 @@ What destroy() does
 ---
 
 StateMachine Resource Notes
-- RP2040 has 8 StateMachines total, RP2350 has 12
+- The RP2040 (original Raspberry Pi Pico) has 2 PIO blocks, each with 4 state machines → 8 total.
+- The newer RP2350 (e.g., used on the Raspberry Pi Pico 2) has 3 PIO blocks, each with 4 state machines → 12 total.
+- Both have a maxmium memory of 32 instructions per PIO block
+  Instruction memory is per PIO block
+  
+   Each PIO block has:
+   - 32 instruction slots total
+   - Shared by all 4 SMs in that block
+ 
+  So:
+  - SM 0–3 share one instruction memory
+  - SM 4–7 share another
+  - SM 8–11 share another (RP2350 only)
+
+- Always be mindful of instruction memory limits per PIO block and how you distribute your programs across the blocks
 - Always reuse SM numbers carefully
 - destroy() frees the SM slot
 
