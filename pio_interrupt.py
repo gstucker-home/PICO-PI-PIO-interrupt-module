@@ -1,6 +1,7 @@
 # PIO Interrupt Module - Final Production Version with destroy()
 # Author: G Tucker
 # Date: 31st Jan 2026
+#version 1.0.2 > modified def _irq_handler(self, sm): so that print only happens if callback not defined.
 
 from machine import Pin
 from rp2 import StateMachine, asm_pio
@@ -85,7 +86,6 @@ class PIO_INTERRUPT:
         pull           : True to enable pull_up/down automatically
         freq           : StateMachine frequency in Hz
         """
-
         self.sm_number = sm_number
         self.interrupt_pin = interrupt_pin
         self.direction = direction
@@ -141,8 +141,11 @@ class PIO_INTERRUPT:
 
     def _irq_handler(self, sm):
         self._triggered = True
+
         if self.callback:
             self.callback()
+        else:
+            print("TRIGGERED")
 
 
     # -------------------------------------------------
